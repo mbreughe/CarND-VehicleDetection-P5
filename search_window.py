@@ -1,6 +1,34 @@
 from lesson_functions import *
 import pickle
 import matplotlib.pyplot as plt
+import os
+from collections import namedtuple
+from scipy.ndimage.measurements import label
+
+
+
+def add_heat(heatmap, bbox_list):
+    # Iterate through list of bboxes
+    for box in bbox_list:
+        # Add += 1 for all pixels inside each bbox
+        # Assuming each "box" takes the form ((x1, y1), (x2, y2))
+        heatmap[box[0][1]:box[1][1], box[0][0]:box[1][0]] += 1
+
+    # Return updated heatmap
+    return heatmap# Iterate through list of bboxes
+    
+def apply_threshold(heatmap, threshold):
+    # Zero out pixels below the threshold
+    heatmap[heatmap <= threshold] = 0
+    # Return thresholded map
+    return heatmap
+    
+def create_heatmap(image, bbox_list, threshold):
+    heat = np.zeros_like(image[:,:,0]).astype(np.float)
+    heat = add_heat(heat, bbox_list)
+    heat = apply_threshold(heat, threshold)
+    return heat
+
 # Define a function you will pass an image 
 # and the list of windows to be searched (output of slide_windows())
 def search_windows(img, windows, clf, scaler, color_space='RGB', 
@@ -82,36 +110,84 @@ def single_img_features(img, color_space='RGB', spatial_size=(32, 32),
     #9) Return concatenated array of features
     return np.concatenate(img_features)
     
+def draw_labeled_bboxes(img, labels, color=(0,0,1)):
+    # Iterate through all detected cars
+    for car_number in range(1, labels[1]+1):
+        # Find pixels with each car_number label value
+        nonzero = (labels[0] == car_number).nonzero()
+        # Identify x and y values of those pixels
+        nonzeroy = np.array(nonzero[0])
+        nonzerox = np.array(nonzero[1])
+        # Define a bounding box based on min/max x and y
+        bbox = ((np.min(nonzerox), np.min(nonzeroy)), (np.max(nonzerox), np.max(nonzeroy)))
+        # Draw the box on the image
+        cv2.rectangle(img, bbox[0], bbox[1], color, 6)
+    # Return the image
+    return img
+    
 if __name__ == "__main__":
     
+    outdir = "output_images"
+    indir = "test_images"
     
+    visualize_heat = False
     
     with open("model.p", "rb") as ifh:
         parameters = pickle.load(ifh)
         X_scaler = pickle.load(ifh)
         svc = pickle.load(ifh)
     
-    y_start_stop = [400, 670]
-    xy_window=(96, 96)
-    #xy_window=(128, 128)
-    xy_overlap=(0.5, 0.5)
-    #xy_overlap=(0.25, 0.25)
+    SearchWindow = namedtuple('SearchWindow', ['y_start_stop', 'xy_window', 'xy_overlap'])
+    
+    s_winds = []
+    s_winds.append(SearchWindow([400, 528], (64, 64), (0.5, 0.5)))
+    
+    for i in range(96, 120, 32):
+        s_winds.append(SearchWindow([350, 670], (i, i), (0.5, 0.5)))
+    
+    #s_winds = [SearchWindow([400, 670], (120, 120), (0.5, 0.5))]
     
     # Classifier was trained on png images. Conversion needed if we are running on jpg images
-    img = mpimg.imread('test_images/test1.jpg')
-    img = img.astype(np.float32)/255
+    for fname in os.listdir(indir):
+        if not fname.endswith("jpg"):
+            continue
+        
+        img = mpimg.imread(os.path.join(indir, fname))
+        img = img.astype(np.float32)/255
+        
+        ofname = os.path.join(outdir, fname)
+        
+        detections = []
+        
+        for s_wind in s_winds:
     
-    ofname = "output.jpg"
-    
-    windows = slide_window(img, x_start_stop=[None, None], y_start_stop=y_start_stop, 
-                    xy_window=xy_window, xy_overlap=xy_overlap)
-    
-    hot_windows = search_windows(img, windows, svc, X_scaler, **parameters)
-    
-    
-    draw_image = np.copy(img)
-    window_img = draw_boxes(draw_image, hot_windows, color=(0, 0, 1), thick=6)   
+            windows = slide_window(img, x_start_stop=[None, None], y_start_stop=s_wind.y_start_stop, 
+                            xy_window=s_wind.xy_window, xy_overlap=s_wind.xy_overlap)
+            new_detections = search_windows(img, windows, svc, X_scaler, **parameters)
+            detections.extend(new_detections)
+            
+        heat = create_heatmap(img, detections, 1)
+        
+        
+        # Visualize the heatmap when displaying    
+        heatmap = np.clip(heat, 0, 255)
 
-    plt.imshow(window_img)
-    plt.savefig(ofname)
+        # Find final boxes from heatmap using label function
+        labels = label(heatmap)
+        draw_img = draw_labeled_bboxes(np.copy(img), labels)
+
+        
+        if visualize_heat:
+            fig = plt.figure()
+            plt.subplot(121)
+            plt.imshow(draw_img)
+            plt.title('Car Positions')
+            plt.subplot(122)
+            plt.imshow(heatmap, cmap='hot')
+            plt.title('Heat Map')
+            fig.tight_layout()
+        else:
+            plt.imshow(draw_img)
+            
+        plt.savefig(ofname)
 
