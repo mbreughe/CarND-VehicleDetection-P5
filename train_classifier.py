@@ -103,10 +103,4 @@ with open("model.p", "wb") as ofh:
     pickle.dump(svc, ofh)
 
 
-# Uncomment the following line if you extracted training
-# data from .png images (scaled 0 to 1 by mpimg) and the
-# image you are searching is a .jpg (scaled 0 to 255)
-#image = image.astype(np.float32)/255
-
-
 
