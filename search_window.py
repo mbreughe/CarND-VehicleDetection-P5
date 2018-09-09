@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import os
 from collections import namedtuple
 from scipy.ndimage.measurements import label
+from moviepy.editor import VideoFileClip
 
 
 
@@ -26,7 +27,6 @@ def apply_threshold(heatmap, threshold):
 def create_heatmap(image, bbox_list, threshold):
     heat = np.zeros_like(image[:,:,0]).astype(np.float)
     heat = add_heat(heat, bbox_list)
-    heat = apply_threshold(heat, threshold)
     return heat
 
 # Define a function you will pass an image 
@@ -125,59 +125,72 @@ def draw_labeled_bboxes(img, labels, color=(0,0,1)):
     # Return the image
     return img
     
-if __name__ == "__main__":
+def process_image(image):
+    global g_heat
+    global g_parameters
+    global g_s_winds
     
-    outdir = "output_images"
-    indir = "test_images"
+    img, g_heat = run_pipeline(image, g_parameters, g_s_winds, heat=g_heat, threshold=3, visualize=False)
     
-    visualize_heat = False
+    # Don't forget to multiply by 255 again!
+    return 255*img
+def process_video(video_fname, parameters, s_winds):
+    # Need to define globals as VideoFileClip.fl_image only accepts one parameter
+    global g_heat
+    global g_parameters
+    global g_s_winds
     
-    with open("model.p", "rb") as ifh:
-        parameters = pickle.load(ifh)
-        X_scaler = pickle.load(ifh)
-        svc = pickle.load(ifh)
+    g_heat = None
+    g_parameters = parameters
+    g_s_winds = s_winds
     
-    SearchWindow = namedtuple('SearchWindow', ['y_start_stop', 'xy_window', 'xy_overlap'])
-    
-    s_winds = []
-    s_winds.append(SearchWindow([400, 528], (64, 64), (0.5, 0.5)))
-    
-    for i in range(96, 120, 32):
-        s_winds.append(SearchWindow([350, 670], (i, i), (0.5, 0.5)))
-    
-    #s_winds = [SearchWindow([400, 670], (120, 120), (0.5, 0.5))]
-    
+
+    clip = VideoFileClip(video_fname).cutout(8, 50)
+    out_clip = clip.fl_image(process_image)
+    out_clip.write_videofile('result.mp4', audio=False)
+
+def run_pipeline(img, parameters, s_winds, heat=None, threshold=1, visualize=True):
     # Classifier was trained on png images. Conversion needed if we are running on jpg images
+    img = img.astype(np.float32)/255
+        
+    detections = []
+    
+    for s_wind in s_winds:
+
+        windows = slide_window(img, x_start_stop=[None, None], y_start_stop=s_wind.y_start_stop, 
+                        xy_window=s_wind.xy_window, xy_overlap=s_wind.xy_overlap)
+        new_detections = search_windows(img, windows, svc, X_scaler, **parameters)
+        detections.extend(new_detections)
+    
+    if heat is None:
+        heat = np.zeros_like(img[:,:,0]).astype(np.float)
+        
+    heat = add_heat(heat, detections)
+    heat = apply_threshold(heat, threshold)
+    
+    heatmap = np.clip(heat, 0, 255)
+
+    # Find final boxes from heatmap using label function
+    labels = label(heatmap)
+    draw_img = draw_labeled_bboxes(np.copy(img), labels)
+    
+    if visualize:
+        return draw_img, heat, heatmap
+    else:
+        return draw_img, heat
+
+
+def test_pipeline(indir, outdir, parameters, s_winds, visualize=True):
     for fname in os.listdir(indir):
         if not fname.endswith("jpg"):
             continue
         
         img = mpimg.imread(os.path.join(indir, fname))
-        img = img.astype(np.float32)/255
         
         ofname = os.path.join(outdir, fname)
-        
-        detections = []
-        
-        for s_wind in s_winds:
-    
-            windows = slide_window(img, x_start_stop=[None, None], y_start_stop=s_wind.y_start_stop, 
-                            xy_window=s_wind.xy_window, xy_overlap=s_wind.xy_overlap)
-            new_detections = search_windows(img, windows, svc, X_scaler, **parameters)
-            detections.extend(new_detections)
-            
-        heat = create_heatmap(img, detections, 1)
-        
-        
-        # Visualize the heatmap when displaying    
-        heatmap = np.clip(heat, 0, 255)
-
-        # Find final boxes from heatmap using label function
-        labels = label(heatmap)
-        draw_img = draw_labeled_bboxes(np.copy(img), labels)
-
-        
-        if visualize_heat:
+     
+        if visualize:
+            (draw_img, _, heatmap) = run_pipeline(img, parameters, s_winds, threshold=1, visualize=visualize)
             fig = plt.figure()
             plt.subplot(121)
             plt.imshow(draw_img)
@@ -187,7 +200,35 @@ if __name__ == "__main__":
             plt.title('Heat Map')
             fig.tight_layout()
         else:
+            draw_img, _ = run_pipeline(img, parameters, s_winds, threshold=1, visualize=visualize)
             plt.imshow(draw_img)
             
         plt.savefig(ofname)
 
+
+    
+if __name__ == "__main__":
+    
+    outdir = "output_images"
+    indir = "test_images"
+    video_fname = "project_video.mp4"
+
+    # Load the classifier parameters
+    with open("model.p", "rb") as ifh:
+        parameters = pickle.load(ifh)
+        X_scaler = pickle.load(ifh)
+        svc = pickle.load(ifh)
+    
+    # Set search window parameters
+    SearchWindow = namedtuple('SearchWindow', ['y_start_stop', 'xy_window', 'xy_overlap'])   
+    s_winds = []
+    s_winds.append(SearchWindow([400, 528], (64, 64), (0.5, 0.5)))
+    
+    for i in range(96, 120, 32):
+        s_winds.append(SearchWindow([350, 670], (i, i), (0.5, 0.5)))
+    
+    #test_pipeline(indir, outdir, parameters, s_winds, True)
+    process_video(video_fname, parameters, s_winds)
+
+        
+        
