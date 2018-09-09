@@ -86,7 +86,7 @@ print('Using:',orient,'orientations',pix_per_cell,
     'pixels per cell and', cell_per_block,'cells per block')
 print('Feature vector length:', len(X_train[0]))
 # Use a linear SVC 
-svc = LinearSVC()
+svc = LinearSVC(C=0.001)
 # Check the training time for the SVC
 t=time.time()
 svc.fit(X_train, y_train)

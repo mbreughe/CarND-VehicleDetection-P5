@@ -5,9 +5,14 @@ import os
 from collections import namedtuple
 from scipy.ndimage.measurements import label
 from moviepy.editor import VideoFileClip
+from alt_implementation import alt_search_window
 
 
-
+def reduce_heat(heatmap):
+    #heatmap = np.maximum(np.subtract(heatmap, 1),0) 
+    heatmap = 0.2 * heatmap
+    return heatmap
+    
 def add_heat(heatmap, bbox_list):
     # Iterate through list of bboxes
     for box in bbox_list:
@@ -129,38 +134,55 @@ def process_image(image):
     global g_heat
     global g_parameters
     global g_s_winds
+    global g_alt_search
     
-    img, g_heat = run_pipeline(image, g_parameters, g_s_winds, heat=g_heat, threshold=3, visualize=False)
+    # 8 in traditional approach
+    img, g_heat = run_pipeline(image, g_parameters, g_s_winds, heat=g_heat, threshold=6, visualize=False, alt_search=g_alt_search)
+    
+    g_heat = reduce_heat(g_heat)
     
     # Don't forget to multiply by 255 again!
     return 255*img
-def process_video(video_fname, parameters, s_winds):
+def process_video(video_fname, parameters, s_winds, alt_search=False):
     # Need to define globals as VideoFileClip.fl_image only accepts one parameter
     global g_heat
     global g_parameters
     global g_s_winds
+    global g_alt_search
     
     g_heat = None
     g_parameters = parameters
     g_s_winds = s_winds
+    g_alt_search = alt_search
     
+    ofname = "result.mp4"
+    if alt_search:
+        ofname = "result_alt.mp4"
 
-    clip = VideoFileClip(video_fname).cutout(8, 50)
+    clip = VideoFileClip(video_fname)#.cutout(5, 45)
     out_clip = clip.fl_image(process_image)
-    out_clip.write_videofile('result.mp4', audio=False)
+    out_clip.write_videofile(ofname, audio=False)
 
-def run_pipeline(img, parameters, s_winds, heat=None, threshold=1, visualize=True):
+def run_pipeline(img, parameters, s_winds, heat=None, threshold=1, visualize=True, alt_search = False):
     # Classifier was trained on png images. Conversion needed if we are running on jpg images
     img = img.astype(np.float32)/255
         
     detections = []
     
-    for s_wind in s_winds:
+    if alt_search:
+        
+        detections.extend(alt_search_window(img, 400, 528, 1, svc, X_scaler, **parameters))
+        detections.extend(alt_search_window(img, 350, 670, 2, svc, X_scaler, **parameters))
+    
+    else:
+        for s_wind in s_winds:
 
-        windows = slide_window(img, x_start_stop=[None, None], y_start_stop=s_wind.y_start_stop, 
-                        xy_window=s_wind.xy_window, xy_overlap=s_wind.xy_overlap)
-        new_detections = search_windows(img, windows, svc, X_scaler, **parameters)
-        detections.extend(new_detections)
+            windows = slide_window(img, x_start_stop=[None, None], y_start_stop=s_wind.y_start_stop, 
+                            xy_window=s_wind.xy_window, xy_overlap=s_wind.xy_overlap)
+            new_detections = search_windows(img, windows, svc, X_scaler, **parameters)
+            detections.extend(new_detections)
+        
+    
     
     if heat is None:
         heat = np.zeros_like(img[:,:,0]).astype(np.float)
@@ -205,7 +227,18 @@ def test_pipeline(indir, outdir, parameters, s_winds, visualize=True):
             
         plt.savefig(ofname)
 
-
+def dumpVideoAtRanges(video_fname, sec_ranges, odir):
+    if not os.path.exists(odir):
+        os.makedirs(odir)
+        
+    set_no = 0
+    for (low, high) in sec_ranges:
+        clip = VideoFileClip(video_fname)
+        clip = clip.cutout(high, clip.duration)
+        clip = clip.cutout(0, low)
+        fname = os.path.join(odir, "frame_s_{}_%03d.jpg".format(set_no))
+        clip.write_images_sequence(fname)
+        set_no += 1
     
 if __name__ == "__main__":
     
@@ -224,11 +257,12 @@ if __name__ == "__main__":
     s_winds = []
     s_winds.append(SearchWindow([400, 528], (64, 64), (0.5, 0.5)))
     
-    for i in range(96, 120, 32):
+    for i in range(80, 128, 16):
         s_winds.append(SearchWindow([350, 670], (i, i), (0.5, 0.5)))
     
-    #test_pipeline(indir, outdir, parameters, s_winds, True)
-    process_video(video_fname, parameters, s_winds)
+    #test_pipeline("debugging", outdir, parameters, s_winds, True)
+    process_video(video_fname, parameters, s_winds, alt_search=False)
 
+    #dumpVideoAtRanges(video_fname, [(2,6), (46, 48)], "debugging")
         
         
