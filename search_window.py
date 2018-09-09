@@ -60,8 +60,9 @@ def search_windows(img, windows, clf, scaler, color_space='RGB',
         test_features = scaler.transform(np.array(features).reshape(1, -1))
         #6) Predict using your classifier
         prediction = clf.predict(test_features)
+        confidence = clf.decision_function(test_features)
         #7) If positive (prediction == 1) then save the window
-        if prediction == 1:
+        if prediction == 1 and confidence > 0.2:
             on_windows.append(window)
     #8) Return windows for positive detections
     return on_windows
@@ -159,7 +160,7 @@ def process_video(video_fname, parameters, s_winds, alt_search=False):
     if alt_search:
         ofname = "result_alt.mp4"
 
-    clip = VideoFileClip(video_fname)#.cutout(5, 45)
+    clip = VideoFileClip(video_fname).cutout(4, 45)
     out_clip = clip.fl_image(process_image)
     out_clip.write_videofile(ofname, audio=False)
 
@@ -170,15 +171,18 @@ def run_pipeline(img, parameters, s_winds, heat=None, threshold=1, visualize=Tru
     detections = []
     
     if alt_search:
-        
-        detections.extend(alt_search_window(img, 400, 528, 1, svc, X_scaler, **parameters))
-        detections.extend(alt_search_window(img, 350, 670, 2, svc, X_scaler, **parameters))
+        for s_wind in s_winds:
+            overlap_steps = int(-8 * s_wind.xy_overlap + 8)
+            scale = s_wind.xy_window / 64
+            detections.extend(alt_search_window(img, s_wind.y_start_stop[0], s_wind.y_start_stop[1], svc, X_scaler, **parameters, overlap_cells_per_step = overlap_steps, scale=scale))
+            
+        #print (detections)
     
     else:
         for s_wind in s_winds:
 
             windows = slide_window(img, x_start_stop=[None, None], y_start_stop=s_wind.y_start_stop, 
-                            xy_window=s_wind.xy_window, xy_overlap=s_wind.xy_overlap)
+                            xy_window=(s_wind.xy_window, s_wind.xy_window), xy_overlap=(s_wind.xy_overlap, s_wind.xy_overlap))
             new_detections = search_windows(img, windows, svc, X_scaler, **parameters)
             detections.extend(new_detections)
         
@@ -255,13 +259,13 @@ if __name__ == "__main__":
     # Set search window parameters
     SearchWindow = namedtuple('SearchWindow', ['y_start_stop', 'xy_window', 'xy_overlap'])   
     s_winds = []
-    s_winds.append(SearchWindow([400, 528], (64, 64), (0.5, 0.5)))
+    s_winds.append(SearchWindow([400, 528], 64, 0.5))
     
     for i in range(80, 128, 16):
-        s_winds.append(SearchWindow([350, 670], (i, i), (0.5, 0.5)))
+        s_winds.append(SearchWindow([350, 670], i, 0.5))
     
     #test_pipeline("debugging", outdir, parameters, s_winds, True)
-    process_video(video_fname, parameters, s_winds, alt_search=False)
+    process_video(video_fname, parameters, s_winds, alt_search=True)
 
     #dumpVideoAtRanges(video_fname, [(2,6), (46, 48)], "debugging")
         

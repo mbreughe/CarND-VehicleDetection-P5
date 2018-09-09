@@ -7,11 +7,10 @@ from lesson_functions import *
 
 # Define a single function that can extract features using hog sub-sampling and make predictions
 
-def alt_search_window(img, ystart, ystop, scale, svc, X_scaler, color_space = 'RGB', orient=9, pix_per_cell=8, cell_per_block=2, spatial_size=(32, 32), 
-    hist_bins=32, hog_channel=0, spatial_feat=True, hist_feat=True, hog_feat=True):
+def alt_search_window(img, ystart, ystop, svc, X_scaler, color_space = 'RGB', orient=9, pix_per_cell=8, cell_per_block=2, spatial_size=(32, 32), 
+    hist_bins=32, hog_channel=0, spatial_feat=True, hist_feat=True, hog_feat=True, overlap_cells_per_step = 2, scale=1.5):
     
     draw_img = np.copy(img)
-    img = img.astype(np.float32)/255
     
     img_tosearch = img[ystart:ystop,:,:]
     if color_space != 'RGB':
@@ -42,9 +41,9 @@ def alt_search_window(img, ystart, ystop, scale, svc, X_scaler, color_space = 'R
     # 64 was the orginal sampling rate, with 8 cells and 8 pix per cell
     window = 64
     nblocks_per_window = (window // pix_per_cell) - cell_per_block + 1
-    cells_per_step = 2  # Instead of overlap, define how many cells to step
-    nxsteps = (nxblocks - nblocks_per_window) // cells_per_step + 1
-    nysteps = (nyblocks - nblocks_per_window) // cells_per_step + 1
+      # Instead of overlap, define how many cells to step
+    nxsteps = (nxblocks - nblocks_per_window) // overlap_cells_per_step + 1
+    nysteps = (nyblocks - nblocks_per_window) // overlap_cells_per_step + 1
     
     # Compute individual channel HOG features for the entire image
     hog = []
@@ -58,8 +57,8 @@ def alt_search_window(img, ystart, ystop, scale, svc, X_scaler, color_space = 'R
         
             img_features = []
             
-            ypos = yb*cells_per_step
-            xpos = xb*cells_per_step
+            ypos = yb*overlap_cells_per_step
+            xpos = xb*overlap_cells_per_step
             # Extract HOG for this patch
             
             if hog_feat:
