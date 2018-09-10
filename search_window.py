@@ -140,7 +140,7 @@ def process_image(image):
     
     
     # 8 in traditional approach
-    img, g_heat_q = run_pipeline(image, g_parameters, g_s_winds, heat_q=g_heat_q, threshold=6, visualize=False, alt_search=g_alt_search, frame_hist_len=10)
+    img, g_heat_q = run_pipeline(image, g_parameters, g_s_winds, heat_q=g_heat_q, threshold=12, visualize=False, alt_search=g_alt_search, frame_hist_len=15)
     
     # Don't forget to multiply by 255 again!
     return 255*img
@@ -158,7 +158,7 @@ def process_video(video_fname, parameters, s_winds, alt_search=False):
     g_s_winds = s_winds
     g_alt_search = alt_search
     
-    ofname = "result_2.mp4"
+    ofname = "result.mp4"
     if alt_search:
         ofname = "result_alt.mp4"
 
@@ -183,7 +183,7 @@ def run_pipeline(img, parameters, s_winds, heat_q=None, threshold=1, visualize=T
 
             windows = slide_window(img, x_start_stop=[None, None], y_start_stop=s_wind.y_start_stop, 
                             xy_window=(s_wind.xy_window, s_wind.xy_window), xy_overlap=(s_wind.xy_overlap, s_wind.xy_overlap))
-            new_detections = search_windows(img, windows, svc, X_scaler, **parameters, conf_thresh=0.8)
+            new_detections = search_windows(img, windows, svc, X_scaler, **parameters, conf_thresh=0.85)
             detections.extend(new_detections)
     if heat_q is None:
         heat_q = deque(maxlen=frame_hist_len)
@@ -262,14 +262,14 @@ if __name__ == "__main__":
     # Set search window parameters
     SearchWindow = namedtuple('SearchWindow', ['y_start_stop', 'xy_window', 'xy_overlap'])   
     s_winds = []
-    s_winds.append(SearchWindow([400, 528], 64, 0.5))
+    s_winds.append(SearchWindow([400, 500], 64, 0.8))
     
-    for i in range(80, 128, 16):
+    for i in range(96, 128, 16):
         s_winds.append(SearchWindow([350, 670], i, 0.5))
     
-    #test_pipeline("debugging", outdir, parameters, s_winds, True)
+    #test_pipeline("debugging_final", outdir, parameters, s_winds, True)
     process_video(video_fname, parameters, s_winds, alt_search=False)
 
-    #dumpVideoAtRanges(video_fname, [(2,6), (46, 48)], "debugging")
+    #dumpVideoAtRanges(video_fname, [(25,26)], "debugging_final")
         
         
