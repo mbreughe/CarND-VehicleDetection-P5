@@ -6,6 +6,7 @@ from collections import namedtuple
 from scipy.ndimage.measurements import label
 from moviepy.editor import VideoFileClip
 from alt_implementation import alt_search_window
+from collections import deque
 
 
 def reduce_heat(heatmap):
@@ -41,7 +42,7 @@ def search_windows(img, windows, clf, scaler, color_space='RGB',
                     hist_range=(0, 256), orient=9, 
                     pix_per_cell=8, cell_per_block=2, 
                     hog_channel=0, spatial_feat=True, 
-                    hist_feat=True, hog_feat=True):
+                    hist_feat=True, hog_feat=True, conf_thresh = 0.1):
 
     #1) Create an empty list to receive positive detection windows
     on_windows = []
@@ -62,7 +63,7 @@ def search_windows(img, windows, clf, scaler, color_space='RGB',
         prediction = clf.predict(test_features)
         confidence = clf.decision_function(test_features)
         #7) If positive (prediction == 1) then save the window
-        if prediction == 1 and confidence > 0.2:
+        if prediction == 1 and confidence > conf_thresh:
             on_windows.append(window)
     #8) Return windows for positive detections
     return on_windows
@@ -132,39 +133,40 @@ def draw_labeled_bboxes(img, labels, color=(0,0,1)):
     return img
     
 def process_image(image):
-    global g_heat
+    global g_heat_q
     global g_parameters
     global g_s_winds
     global g_alt_search
     
-    # 8 in traditional approach
-    img, g_heat = run_pipeline(image, g_parameters, g_s_winds, heat=g_heat, threshold=6, visualize=False, alt_search=g_alt_search)
     
-    g_heat = reduce_heat(g_heat)
+    # 8 in traditional approach
+    img, g_heat_q = run_pipeline(image, g_parameters, g_s_winds, heat_q=g_heat_q, threshold=6, visualize=False, alt_search=g_alt_search, frame_hist_len=10)
     
     # Don't forget to multiply by 255 again!
     return 255*img
+    
 def process_video(video_fname, parameters, s_winds, alt_search=False):
     # Need to define globals as VideoFileClip.fl_image only accepts one parameter
-    global g_heat
+    global g_heat_q
     global g_parameters
     global g_s_winds
     global g_alt_search
+    g_heat_q = None
     
-    g_heat = None
+    
     g_parameters = parameters
     g_s_winds = s_winds
     g_alt_search = alt_search
     
-    ofname = "result.mp4"
+    ofname = "result_2.mp4"
     if alt_search:
         ofname = "result_alt.mp4"
 
-    clip = VideoFileClip(video_fname).cutout(4, 45)
+    clip = VideoFileClip(video_fname)
     out_clip = clip.fl_image(process_image)
     out_clip.write_videofile(ofname, audio=False)
 
-def run_pipeline(img, parameters, s_winds, heat=None, threshold=1, visualize=True, alt_search = False):
+def run_pipeline(img, parameters, s_winds, heat_q=None, threshold=1, visualize=True, alt_search = False, frame_hist_len=10):
     # Classifier was trained on png images. Conversion needed if we are running on jpg images
     img = img.astype(np.float32)/255
         
@@ -175,35 +177,36 @@ def run_pipeline(img, parameters, s_winds, heat=None, threshold=1, visualize=Tru
             overlap_steps = int(-8 * s_wind.xy_overlap + 8)
             scale = s_wind.xy_window / 64
             detections.extend(alt_search_window(img, s_wind.y_start_stop[0], s_wind.y_start_stop[1], svc, X_scaler, **parameters, overlap_cells_per_step = overlap_steps, scale=scale))
-            
-        #print (detections)
     
     else:
         for s_wind in s_winds:
 
             windows = slide_window(img, x_start_stop=[None, None], y_start_stop=s_wind.y_start_stop, 
                             xy_window=(s_wind.xy_window, s_wind.xy_window), xy_overlap=(s_wind.xy_overlap, s_wind.xy_overlap))
-            new_detections = search_windows(img, windows, svc, X_scaler, **parameters)
+            new_detections = search_windows(img, windows, svc, X_scaler, **parameters, conf_thresh=0.8)
             detections.extend(new_detections)
-        
+    if heat_q is None:
+        heat_q = deque(maxlen=frame_hist_len)
     
+    cur_heat = np.zeros_like(img[:,:,0]).astype(np.float)   
+    cur_heat = add_heat(cur_heat, detections)
     
-    if heat is None:
-        heat = np.zeros_like(img[:,:,0]).astype(np.float)
-        
-    heat = add_heat(heat, detections)
-    heat = apply_threshold(heat, threshold)
+    heat_q.append(cur_heat)
     
-    heatmap = np.clip(heat, 0, 255)
+    tot_heat = sum(heat_q)
+    
+    tot_heat = apply_threshold(tot_heat, threshold)
+    
+    heatmap = np.clip(tot_heat, 0, 255)    
 
     # Find final boxes from heatmap using label function
     labels = label(heatmap)
     draw_img = draw_labeled_bboxes(np.copy(img), labels)
     
     if visualize:
-        return draw_img, heat, heatmap
+        return draw_img, heat_q, heatmap
     else:
-        return draw_img, heat
+        return draw_img, heat_q
 
 
 def test_pipeline(indir, outdir, parameters, s_winds, visualize=True):
@@ -265,7 +268,7 @@ if __name__ == "__main__":
         s_winds.append(SearchWindow([350, 670], i, 0.5))
     
     #test_pipeline("debugging", outdir, parameters, s_winds, True)
-    process_video(video_fname, parameters, s_winds, alt_search=True)
+    process_video(video_fname, parameters, s_winds, alt_search=False)
 
     #dumpVideoAtRanges(video_fname, [(2,6), (46, 48)], "debugging")
         
