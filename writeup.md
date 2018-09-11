@@ -95,12 +95,12 @@ This code lives in search_window.py script. Around line 263 I defined a SearchWi
 
 Below are examples that show which windows the SVM classifier detected to contain cars. There are a couple of false positives and one false negative. I improved the performance of the classifier by looking at the output of the SVM's decision_function, besides just using its classification result. This eliminated many false positives. As mentioned before, using multiple small windows of 64x64 with lots of overlap in a strip near the horizon significantly reduced the amount of false negatives.
 
-![test1][box1]
-![test2][box2]
-![test3][box3]
-![test4][box4]
-![test5][box5]
-![test6][box6]
+![test1][box_1]
+![test2][box_2]
+![test3][box_3]
+![test4][box_4]
+![test5][box_5]
+![test6][box_6]
 
 ---
 
